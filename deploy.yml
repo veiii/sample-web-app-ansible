@@ -1,0 +1,85 @@
+# This playbook deploy firewalld, mariadb, httpd, phpand sample app.
+
+- name: Deploy a web application
+  hosts: centos
+  become: yes
+  vars:
+    mysql_root_password: "pass_root_to_change"
+    mysql_ecomuser_password: "ecompassword"
+  tasks:
+    - name: Install firewalld
+      yum:
+        name: ['firewalld'] 
+        state: present
+    - name: Start firewalld
+      service:
+          name: firewalld 
+          enabled: true
+          state: started
+    - name: Opem port 80
+      shell:
+        cmd: firewall-cmd --permanent --zone=public --add-port=80/tcp
+    - name: Restart firewalld
+      service:
+          name: firewalld 
+          enabled: true
+          state: restarted
+    - name: Install mariadb
+      yum:
+        name: ['mariadb-server', 'python3-PyMySQL']
+        state: present
+    - name: Start mariadb
+      service:
+        name: mariadb
+        enabled: true
+        state: started
+    - name: Set root password
+      mysql_user:
+        update_password: always 
+        user: root
+        check_implicit_admin: true
+        password: '{{ mysql_root_password }}'
+        host: localhost
+        state: present
+    - name: Create load db script
+      copy:
+          dest: /home/centos/load-db.sql 
+          src: ./load-db.sql
+    - name: Create database
+      mysql_db:
+        login_host: localhost
+        login_user: root
+        login_password: '{{ mysql_root_password }}'
+        name: ecomdb
+        state: import
+        target:  /home/centos/load-db.sql 
+    - name: Create DB user
+      mysql_user:
+        login_user: root
+        login_password: '{{ mysql_root_password }}'
+        name: ecomuser
+        password: "{{ mysql_ecomuser_password }}"
+        priv: 'ecomdb.*:ALL'
+        host: localhost
+        state: present
+    - name: Install webserwer
+      yum:
+          name: ['httpd', 'php', 'php-mysqlnd', 'git']
+          state: present
+    - name: make index.php default page
+      shell:
+          cmd: sed -i 's/index.html/index.php/g' /etc/httpd/conf/httpd.conf
+
+    - name: Clone repo
+      git:
+          dest: /var/www/html/ 
+          repo: https://github.com/kodekloudhub/learning-app-ecommerce.git
+          clone: yes 
+    - name: Update index.php 
+      shell:
+          cmd: sed -i 's/172.20.1.101/localhost/g' /var/www/html/index.php
+    - name: Start webserver
+      service:
+          name: httpd
+          enabled: true 
+          state: restarted 
